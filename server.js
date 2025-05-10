@@ -1,119 +1,200 @@
-/**
- * This is the main Node.js server script for your project
- * Check out the two endpoints this back-end API provides in fastify.get and fastify.post below
- */
+const WebSocket = require("ws");
+const express = require("express");
+const fs = require('fs');
+const pako = require("pako");
 
-const path = require("path");
+const app = express();
+const PORT = 3000;
 
-// Require the fastify framework and instantiate it
-const fastify = require("fastify")({
-  // Set this to true for detailed logging:
-  logger: false,
-});
+function readMessagesFromFile() {
+  try {
+    const messagesData = fs.readFileSync('messages.json');
+    return JSON.parse(messagesData);
+  } catch (error) {
+    return { messages: [] };
+  }
+};
 
-// ADD FAVORITES ARRAY VARIABLE FROM TODO HERE
+function writeMessagesToFile(messages) {
+  try {
+    fs.writeFileSync('messages.json', JSON.stringify(messages, null, 2));
+  } catch (error) {
+    console.error('Error writing messages to file:', error);
+  }
+};
 
-// Setup our static files
-fastify.register(require("@fastify/static"), {
-  root: path.join(__dirname, "public"),
-  prefix: "/", // optional: default '/'
-});
-
-// Formbody lets us parse incoming forms
-fastify.register(require("@fastify/formbody"));
-
-// View is a templating manager for fastify
-fastify.register(require("@fastify/view"), {
-  engine: {
-    handlebars: require("handlebars"),
-  },
-});
-
-// Load and parse SEO data
-const seo = require("./src/seo.json");
-if (seo.url === "glitch-default") {
-  seo.url = `https://${process.env.PROJECT_DOMAIN}.glitch.me`;
+function bufferToString(buffer) {
+  return new TextDecoder().decode(buffer);
 }
 
-/**
- * Our home page route
- *
- * Returns src/pages/index.hbs with data built into it
- */
-fastify.get("/", function (request, reply) {
-  // params is an object we'll pass to our handlebars template
-  let params = { seo: seo };
 
-  // If someone clicked the option for a random color it'll be passed in the querystring
-  if (request.query.randomize) {
-    // We need to load our color data file, pick one at random, and add it to the params
-    const colors = require("./src/colors.json");
-    const allColors = Object.keys(colors);
-    let currentColor = allColors[(allColors.length * Math.random()) << 0];
+// Create a WebSocket server
+const wss = new WebSocket.Server({ noServer: true });
+var onlineUsers = [];
+// Handle WebSocket connections
+wss.on("connection", (ws) => {
+    console.log("A user connected");
+    ws.on("message", (message) => {
+        /*message = bufferToString(message);
+        console.log(message);
+        if (message.startsWith('test:')) {
+          message = message.replace('test:', '');
+          const data = JSON.parse(message.toString());
+            var messages = readMessagesFromFile();
+            var reqMessage = data;
+            var messageEntry = messages.find(t => JSON.stringify(t.userId) === JSON.stringify(reqMessage.userId));
+            if (messageEntry) {
+              if (!messageEntry.uid.endsWith(reqMessage.uid)) {
+                messageEntry.uid += `, ${reqMessage.uid}`;
+              }
+              if (reqMessage.clanTag) {
+                if (messageEntry.clanTag) {
+                  if (!messageEntry.clanTag.endsWith(reqMessage.clanTag)) {
+                    messageEntry.clanTag += `, ${reqMessage.clanTag}`;
+                  }
+                } else {
+                  messageEntry.clanTag = reqMessage.clanTag;
+                }
+              }
+              messageEntry.battle = reqMessage.battle;
+              messageEntry.hasPremium = reqMessage.hasPremium;
+              messageEntry.onlineStatus = reqMessage.onlineStatus;
+              messageEntry.rank = reqMessage.rank;
+            } else {
+              messages.push(reqMessage);
+            }
+            writeMessagesToFile(messages);
+            ws.send(JSON.stringify({ message: "Message added successfully" }));
+          console.log("Received message:", message.toString());
+        };*/
+      message = bufferToString(message);
+        console.log(message);
 
-    // Add the color properties to the params object
-    params = {
-      color: colors[currentColor],
-      colorError: null,
-      seo: seo,
-    };
-  }
+        if (message.startsWith('bulk:')) {
+    try {
+        const base64 = message.slice(5);
+        const buffer = Buffer.from(base64, 'base64'); // binary buffer
+        const decompressed = pako.inflate(buffer, { to: 'string' });
+        const dataArray = JSON.parse(decompressed);
 
-  // The Handlebars code will be able to access the parameter values and build them into the page
-  return reply.view("/src/pages/index.hbs", params);
+        console.log("Bulk received:", dataArray.length);
+
+        let messages = readMessagesFromFile();
+
+        for (const reqMessage of dataArray) {
+            const messageEntry = messages.find(t => JSON.stringify(t.userId) === JSON.stringify(reqMessage.userId));
+            if (messageEntry) {
+                if (!messageEntry.uid.endsWith(reqMessage.uid)) {
+                    messageEntry.uid += `, ${reqMessage.uid}`;
+                }
+                if (reqMessage.clanTag) {
+                    if (messageEntry.clanTag) {
+                        if (!messageEntry.clanTag.endsWith(reqMessage.clanTag)) {
+                            messageEntry.clanTag += `, ${reqMessage.clanTag}`;
+                        }
+                    } else {
+                        messageEntry.clanTag = reqMessage.clanTag;
+                    }
+                }
+                messageEntry.battle = reqMessage.battle;
+                messageEntry.hasPremium = reqMessage.hasPremium;
+                messageEntry.onlineStatus = reqMessage.onlineStatus;
+                messageEntry.rank = reqMessage.rank;
+            } else {
+                messages.push(reqMessage);
+            }
+        }
+
+        writeMessagesToFile(messages);
+        ws.send(JSON.stringify({ message: `Bulk message added successfully (${dataArray.length} items)` }));
+    } catch (err) {
+        console.error("Error handling bulk message:", err);
+        ws.send(JSON.stringify({ error: "Failed to process bulk message" }));
+    }
+} else if (message.startsWith('test:')) {
+            message = message.replace('test:', '');
+            const data = JSON.parse(message.toString());
+            let messages = readMessagesFromFile();
+            const reqMessage = data;
+            const messageEntry = messages.find(t => JSON.stringify(t.userId) === JSON.stringify(reqMessage.userId));
+
+            if (messageEntry) {
+                if (!messageEntry.uid.endsWith(reqMessage.uid)) {
+                    messageEntry.uid += `, ${reqMessage.uid}`;
+                }
+                if (reqMessage.clanTag) {
+                    if (messageEntry.clanTag) {
+                        if (!messageEntry.clanTag.endsWith(reqMessage.clanTag)) {
+                            messageEntry.clanTag += `, ${reqMessage.clanTag}`;
+                        }
+                    } else {
+                        messageEntry.clanTag = reqMessage.clanTag;
+                    }
+                }
+                messageEntry.battle = reqMessage.battle;
+                messageEntry.hasPremium = reqMessage.hasPremium;
+                messageEntry.onlineStatus = reqMessage.onlineStatus;
+                messageEntry.rank = reqMessage.rank;
+            } else {
+                messages.push(reqMessage);
+            }
+            writeMessagesToFile(messages);
+            ws.send(JSON.stringify({ message: "Message added successfully" }));
+            console.log("Received message:", message.toString());
+        }
+    });
+    ws.on("close", () => console.log("A user disconnected"));
 });
 
-/**
- * Our POST route to handle and react to form submissions
- *
- * Accepts body data indicating the user choice
- */
-fastify.post("/", function (request, reply) {
-  // Build the params object to pass to the template
-  let params = { seo: seo };
+// Handle HTTP requests to send JavaScript to WebSocket clients
+app.get("/api/sendToClient", (req, res) => {
+    const jsCode = req.query.JS; // Retrieve the JavaScript code from the query parameter
 
-  // If the user submitted a color through the form it'll be passed here in the request body
-  let color = request.body.color;
-
-  // If it's not empty, let's try to find the color
-  if (color) {
-    // ADD CODE FROM TODO HERE TO SAVE SUBMITTED FAVORITES
-
-    // Load our color data file
-    const colors = require("./src/colors.json");
-
-    // Take our form submission, remove whitespace, and convert to lowercase
-    color = color.toLowerCase().replace(/\s/g, "");
-
-    // Now we see if that color is a key in our colors object
-    if (colors[color]) {
-      // Found one!
-      params = {
-        color: colors[color],
-        colorError: null,
-        seo: seo,
-      };
-    } else {
-      // No luck! Return the user value as the error property
-      params = {
-        colorError: request.body.color,
-        seo: seo,
-      };
+    if (!jsCode) {
+        return res.status(400).send("Error: Missing JS query parameter");
     }
-  }
 
-  // The Handlebars template will use the parameter values to update the page with the chosen color
-  return reply.view("/src/pages/index.hbs", params);
+    // Send the JavaScript code to all connected clients
+    wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(jsCode);
+        }
+    });
+
+    console.log(`Sent JS code to clients: ${jsCode}`);
+    res.send("JavaScript code sent to clients successfully.");
 });
 
-// Run the server and report out to the logs
-fastify.listen(
-  { port: process.env.PORT, host: "0.0.0.0" },
-  function (err, address) {
-    if (err) {
-      console.error(err);
-      process.exit(1);
-    }
-    console.log(`Your app is listening on ${address}`);
-  }
-);
+app.get("/api/getOnlineUsers", (req, res) => {
+    onlineUsers = [];
+    wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(`window.postMessage({action:"sendToWS",message:\`ONLINE:\${User.name}\`},"*");`);
+        }
+    });
+    setTimeout(() => {
+        console.log(`Checked for online users.`);
+        res.send(JSON.stringify(onlineUsers));
+    }, 1000);
+});
+
+app.get("/api/viewMessages", (req, res) => {
+    res.set({
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Content-Type'
+    });
+    var messages = readMessagesFromFile();
+    res.send(messages);
+});
+
+// Integrate WebSocket with the HTTP server
+const server = app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+server.on("upgrade", (request, socket, head) => {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+    });
+});
